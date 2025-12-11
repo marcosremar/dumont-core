@@ -43,6 +43,7 @@ class LLMProvider(Enum):
     LITELLM = "litellm"  # Alias para OpenRouter via LiteLLM
     OLLAMA_LOCAL = "ollama"
     OLLAMA_REMOTE = "ollama-remote"
+    DEDICATED = "dedicated"  # Máquina dedicada via Vast.ai
 
 
 @dataclass
@@ -114,14 +115,16 @@ class LLMManager:
         self,
         provider: str = "auto",
         model: Optional[str] = None,
+        backend: str = "ollama",  # Para dedicated: "ollama" ou "huggingface"
         **kwargs
     ) -> Any:
         """
         Obtém uma instância de LLM configurada.
 
         Args:
-            provider: Provedor a usar ("openrouter", "ollama", "ollama-remote", "auto")
+            provider: Provedor a usar ("openrouter", "ollama", "ollama-remote", "dedicated", "auto")
             model: Modelo a usar (usa padrão se não especificado)
+            backend: Para dedicated - "ollama" (Ollama Registry) ou "huggingface" (HF Hub)
             **kwargs: Parâmetros extras para o LLM
 
         Returns:
@@ -130,6 +133,10 @@ class LLMManager:
         # Resolver provider "auto"
         if provider == "auto":
             provider = await self._auto_select_provider()
+
+        # Handle dedicated provider specially
+        if provider == "dedicated":
+            return await self._create_dedicated_llm(model, backend, **kwargs)
 
         provider_enum = LLMProvider(provider)
 
@@ -238,6 +245,36 @@ class LLMManager:
             model=model,
             base_url=host,
             timeout=kwargs.pop("timeout", 120),
+            **kwargs
+        )
+
+    async def _create_dedicated_llm(self, model: str, backend: str = "ollama", **kwargs) -> Any:
+        """
+        Cria LLM via máquina dedicada (Vast.ai).
+        
+        Args:
+            model: Nome do modelo (Ollama format ou HuggingFace repo)
+            backend: "ollama" ou "huggingface"
+        """
+        from dumont_core.llm.dedicated import get_dedicated_provider
+        
+        provider = get_dedicated_provider()
+        
+        if not provider.is_available:
+            raise RuntimeError(
+                "Máquina dedicada requer VASTAI_API_KEY. "
+                "Configure a variável de ambiente ou use outro provider."
+            )
+        
+        logger.info(f"Provisionando máquina dedicada: {backend}/{model}")
+        
+        # Obter ou criar instância dedicada
+        instance = await provider.get_or_create(model=model, backend=backend)
+        
+        # Criar LLM usando o endpoint local (via túnel SSH)
+        return await self._create_ollama_llm(
+            model=model,
+            host=instance.endpoint,
             **kwargs
         )
 

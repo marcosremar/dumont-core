@@ -2,14 +2,15 @@
 Dumont Core LLM - Gerenciador unificado de LLMs
 
 Suporta múltiplos providers:
-- OpenRouter (API cloud)
+- OpenRouter (API cloud via LiteLLM)
 - Ollama (local e remoto via SSH)
-- OpenAI
-- Anthropic
+- Dedicated (máquina dedicada via Vast.ai)
+- OpenAI, Anthropic
 
 Features:
 - Auto-seleção de provider
 - Túnel SSH automático para VPS
+- Provisionamento de máquinas GPU (Vast.ai)
 - Gateway com litellm
 - Fallback entre providers
 """
@@ -24,6 +25,15 @@ from dumont_core.llm.manager import (
 )
 
 from dumont_core.llm.tunnel import SSHTunnel, RemoteServerConfig
+
+# Dedicated machine provider
+from dumont_core.llm.dedicated import (
+    DedicatedProvider,
+    DedicatedInstance,
+    DedicatedConfig,
+    DedicatedBackend,
+    get_dedicated_provider,
+)
 
 # Gateway avançado (opcional - requer litellm)
 try:
@@ -46,6 +56,12 @@ __all__ = [
     # SSH Tunnel
     "SSHTunnel",
     "RemoteServerConfig",
+    # Dedicated machines
+    "DedicatedProvider",
+    "DedicatedInstance",
+    "DedicatedConfig",
+    "DedicatedBackend",
+    "get_dedicated_provider",
     # Gateway avançado
     "LLMGateway",
     "ChatResponse",
