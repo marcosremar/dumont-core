@@ -1,8 +1,20 @@
 """
-Dumont LLM - Gerenciador unificado de LLMs
+Dumont Core LLM - Gerenciador unificado de LLMs
+
+Suporta múltiplos providers:
+- OpenRouter (API cloud)
+- Ollama (local e remoto via SSH)
+- OpenAI
+- Anthropic
+
+Features:
+- Auto-seleção de provider
+- Túnel SSH automático para VPS
+- Gateway com litellm
+- Fallback entre providers
 """
 
-from .manager import (
+from dumont_core.llm.manager import (
     LLMManager,
     LLMProvider,
     LLMConfig,
@@ -11,15 +23,32 @@ from .manager import (
     list_models,
 )
 
-from .tunnel import SSHTunnel, RemoteServerConfig
+from dumont_core.llm.tunnel import SSHTunnel, RemoteServerConfig
+
+# Gateway avançado (opcional - requer litellm)
+try:
+    from dumont_core.llm.gateway import LLMGateway, ChatResponse, ToolCall
+    GATEWAY_AVAILABLE = True
+except ImportError:
+    GATEWAY_AVAILABLE = False
+    LLMGateway = None
+    ChatResponse = None
+    ToolCall = None
 
 __all__ = [
+    # Manager simples
     "LLMManager",
     "LLMProvider", 
     "LLMConfig",
     "get_llm_manager",
     "get_llm",
     "list_models",
+    # SSH Tunnel
     "SSHTunnel",
     "RemoteServerConfig",
+    # Gateway avançado
+    "LLMGateway",
+    "ChatResponse",
+    "ToolCall",
+    "GATEWAY_AVAILABLE",
 ]

@@ -1,44 +1,55 @@
-"""
-Ollama Provider - Conexão com Ollama local ou remoto
-"""
+"""Ollama LLM provider strategy."""
 
-from typing import Any, Optional
-import httpx
+from __future__ import annotations
 
-class OllamaProvider:
-    """Provider para Ollama (local ou remoto)"""
-    
-    def __init__(self, host: str = "http://localhost:11434", model: str = "qwen2.5-coder:14b"):
-        self.host = host
+import os
+
+from dumont_core.infrastructure.llm_providers.base import LLMProviderStrategy
+
+
+class OllamaProvider(LLMProviderStrategy):
+    """
+    Ollama LLM provider strategy.
+
+    For LiteLLM, Ollama models need the "ollama/" prefix.
+    Ollama runs locally so API key is not strictly required.
+    """
+
+    def configure(self, model: str, api_key: str) -> None:
+        """Configure Ollama provider.
+
+        Args:
+            model: Model name (e.g., "qwen2.5-coder:7b-instruct")
+            api_key: API key (not used for local Ollama, can be "ollama" or empty)
+        """
         self.model = model
-    
-    def is_available(self) -> bool:
-        """Verifica se o Ollama está disponível"""
-        try:
-            response = httpx.get(f"{self.host}/api/tags", timeout=5)
-            return response.status_code == 200
-        except Exception:
-            return False
-    
-    async def list_models(self) -> list:
-        """Lista modelos disponíveis"""
-        try:
-            response = httpx.get(f"{self.host}/api/tags", timeout=10)
-            data = response.json()
-            return data.get("models", [])
-        except Exception:
-            return []
-    
-    async def create_llm(self, **kwargs) -> Any:
-        """Cria instância do LLM"""
-        try:
-            from langchain_ollama import ChatOllama
-        except ImportError:
-            from browser_use import ChatOllama
-        
-        return ChatOllama(
-            model=self.model,
-            base_url=self.host,
-            timeout=kwargs.pop("timeout", 120),
-            **kwargs
-        )
+        # Ollama API base URL (default is localhost:11434)
+        self.api_base = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+
+    def get_model_name(self, model: str) -> str:
+        """Get LiteLLM-formatted model name for Ollama.
+
+        Args:
+            model: Original model name
+
+        Returns:
+            Model name with "ollama/" prefix for LiteLLM
+        """
+        # LiteLLM requires "ollama/" prefix for Ollama models
+        if model.startswith("ollama/"):
+            return model
+        return f"ollama/{model}"
+
+    def supports_function_calling(self, model: str) -> bool:
+        """Check if Ollama model supports function calling.
+
+        Most modern Ollama models support function calling/tool use.
+
+        Args:
+            model: Model name
+
+        Returns:
+            True - assume function calling is supported
+        """
+        # Most modern Ollama models (Qwen, Llama, etc.) support function calling
+        return True
