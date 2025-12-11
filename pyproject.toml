@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dumont-shared"
+version = "0.1.0"
+description = "Módulos compartilhados para projetos Dumont"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.25.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+openrouter = ["litellm>=1.0.0"]
+ollama = ["ollama>=0.1.0"]
+all = ["litellm>=1.0.0", "ollama>=0.1.0"]
