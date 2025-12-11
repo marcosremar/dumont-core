@@ -10,6 +10,8 @@ Suporta dois backends:
 import asyncio
 import logging
 import os
+import subprocess
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
@@ -34,14 +36,18 @@ class DedicatedConfig:
     
     # Vast.ai config
     max_cost_per_hour: float = 0.50
-    gpu_type: str = "RTX 3090"
+    gpu_type: str = "RTX_3090"  # RTX_3090, RTX_4090, A100, etc.
     min_gpu_memory_gb: int = 24
+    min_disk_gb: int = 50
+    
+    # Docker image
+    docker_image: str = "ollama/ollama:latest"
     
     # HuggingFace specific
     quantization: Optional[str] = None  # awq, gptq, None
     
     # Timeouts
-    provision_timeout_minutes: int = 10
+    provision_timeout_seconds: int = 300
     model_load_timeout_minutes: int = 15
     
     # Local port for tunnel
@@ -118,6 +124,29 @@ class DedicatedProvider:
         """Verifica se Vast.ai está configurado"""
         return bool(self._vastai_api_key)
     
+    async def _run_vastai_command(self, args: list[str]) -> subprocess.CompletedProcess:
+        """Executa comando vastai CLI"""
+        vastai_paths = [
+            "vastai",
+            os.path.expanduser("~/.local/bin/vastai"),
+            "/home/marcos/.local/bin/vastai",  # Common Ubuntu location
+            "/usr/local/bin/vastai",
+        ]
+        
+        vastai_cmd = "vastai"
+        for path in vastai_paths:
+            if os.path.exists(path):
+                vastai_cmd = path
+                break
+        
+        cmd = [vastai_cmd, "--api-key", self._vastai_api_key] + args
+        logger.debug(f"Running: vastai {' '.join(args)}")
+        
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, text=True
+        )
+        return result
+    
     async def provision(
         self,
         model: str,
@@ -146,47 +175,70 @@ class DedicatedProvider:
         # 1. Buscar melhor oferta no Vast.ai
         offer = await self._find_best_offer(config)
         if not offer:
-            raise RuntimeError("Nenhuma máquina disponível no Vast.ai")
+            raise RuntimeError("Nenhuma máquina disponível no Vast.ai com os requisitos especificados")
+        
+        logger.info(f"Melhor oferta: GPU {offer.get('gpu_name', '?')} @ ${offer.get('dph_total', '?')}/hr")
         
         # 2. Criar instância
         instance_id = await self._create_instance(offer, backend_enum, model, config)
         
         # 3. Aguardar instância ficar pronta
-        ssh_info = await self._wait_for_instance(instance_id, config.provision_timeout_minutes)
+        instance_info = await self._wait_for_instance(instance_id, config.provision_timeout_seconds)
         
-        # 4. Instalar backend e modelo
-        await self._setup_instance(instance_id, backend_enum, model, config)
-        
-        # 5. Criar objeto DedicatedInstance
+        # 4. Criar objeto DedicatedInstance
         instance = DedicatedInstance(
             instance_id=instance_id,
             backend=backend_enum,
             model=model,
-            ssh_host=ssh_info["host"],
-            ssh_port=ssh_info["port"],
+            ssh_host=instance_info["host"],
+            ssh_port=instance_info["port"],
             local_port=config.local_port,
             api_port=11434 if backend_enum == DedicatedBackend.OLLAMA else 8000,
         )
         
         self._instances[instance_id] = instance
         
-        # 6. Estabelecer túnel
+        # 5. Estabelecer túnel
         if not await instance.connect():
             raise RuntimeError("Falha ao estabelecer túnel SSH")
+        
+        # 6. Aguardar modelo carregar (Ollama puxa automaticamente no onstart)
+        if backend_enum == DedicatedBackend.OLLAMA:
+            await self._wait_for_ollama_ready(instance, model, config.model_load_timeout_minutes)
         
         logger.info(f"Máquina dedicada pronta: {instance.endpoint}")
         return instance
     
     async def _find_best_offer(self, config: DedicatedConfig) -> Optional[dict]:
         """Busca a melhor oferta no Vast.ai"""
+        # Construir query de busca
+        query = (
+            f"gpu_name={config.gpu_type} "
+            f"gpu_ram>={config.min_gpu_memory_gb} "
+            f"disk_space>={config.min_disk_gb} "
+            f"dph_total<={config.max_cost_per_hour} "
+            f"reliability>0.9 "
+            f"rentable=true"
+        )
+        
+        result = await self._run_vastai_command([
+            "search", "offers", query,
+            "--order", "dph_total",
+            "--limit", "1",
+            "--raw"
+        ])
+        
+        if result.returncode != 0:
+            logger.error(f"Falha ao buscar ofertas: {result.stderr}")
+            return None
+        
         try:
-            from dumont_core.cloud.gpu_lifecycle import GPUInstanceState
-            # TODO: Implementar busca real via Vast.ai API
-            # Por enquanto, usar a infraestrutura existente do cloud module
-            logger.info(f"Buscando GPU {config.gpu_type} <= ${config.max_cost_per_hour}/hr")
-            return {"id": "mock", "price": 0.30}
-        except ImportError:
-            logger.warning("Cloud module não disponível para busca de ofertas")
+            offers = json.loads(result.stdout)
+            if offers and len(offers) > 0:
+                return offers[0]
+            return None
+        except json.JSONDecodeError:
+            logger.error(f"Falha ao parsear resposta: {result.stdout}")
             return None
     
     async def _create_instance(
@@ -197,54 +249,131 @@ class DedicatedProvider:
         config: DedicatedConfig
     ) -> int:
         """Cria instância no Vast.ai"""
-        # TODO: Implementar criação real via Vast.ai API
-        logger.info(f"Criando instância para {backend.value}/{model}")
-        return 12345  # Mock instance ID
+        offer_id = offer["id"]
+        
+        # Gerar script onstart baseado no backend
+        if backend == DedicatedBackend.OLLAMA:
+            onstart_script = self._get_ollama_onstart_script(model)
+            docker_image = "ollama/ollama:latest"
+        else:
+            onstart_script = self._get_vllm_onstart_script(model, config.quantization)
+            docker_image = "vllm/vllm-openai:latest"
+        
+        result = await self._run_vastai_command([
+            "create", "instance", str(offer_id),
+            "--image", docker_image,
+            "--disk", str(config.min_disk_gb),
+            "--onstart-cmd", onstart_script,
+            "--raw"
+        ])
+        
+        if result.returncode != 0:
+            raise RuntimeError(f"Falha ao criar instância: {result.stderr}")
+        
+        try:
+            data = json.loads(result.stdout)
+            instance_id = data.get("new_contract") or data.get("id")
+            if not instance_id:
+                raise RuntimeError(f"Resposta inválida: {result.stdout}")
+            logger.info(f"Instância criada: {instance_id}")
+            return int(instance_id)
+        except (json.JSONDecodeError, KeyError) as e:
+            raise RuntimeError(f"Falha ao parsear resposta: {e}")
+    
+    def _get_ollama_onstart_script(self, model: str) -> str:
+        """Gera script de inicialização para Ollama"""
+        return f'''#!/bin/bash
+# Start Ollama service
+ollama serve &
+sleep 5
+# Pull the model
+ollama pull {model}
+# Keep container running
+tail -f /dev/null
+'''
+    
+    def _get_vllm_onstart_script(self, model: str, quantization: Optional[str]) -> str:
+        """Gera script de inicialização para vLLM"""
+        quant_arg = f"--quantization {quantization}" if quantization else ""
+        return f'''#!/bin/bash
+pip install vllm
+python -m vllm.entrypoints.openai.api_server \
+    --model {model} \
+    --host 0.0.0.0 \
+    --port 8000 \
+    {quant_arg}
+'''
     
     async def _wait_for_instance(
         self, 
         instance_id: int, 
-        timeout_minutes: int
+        timeout_seconds: int
     ) -> dict:
-        """Aguarda instância ficar pronta"""
+        """Aguarda instância ficar pronta e retorna info de conexão"""
         logger.info(f"Aguardando instância {instance_id} ficar pronta...")
-        # TODO: Implementar polling real
-        await asyncio.sleep(2)  # Mock delay
-        return {"host": "example.com", "port": 22}
+        
+        import time
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout_seconds:
+            result = await self._run_vastai_command([
+                "show", "instance", str(instance_id), "--raw"
+            ])
+            
+            if result.returncode == 0:
+                try:
+                    data = json.loads(result.stdout)
+                    instance_data = data[0] if isinstance(data, list) else data
+                    
+                    status = instance_data.get("actual_status", "")
+                    if status == "running":
+                        # Extrair informações de conexão SSH
+                        ssh_host = instance_data.get("public_ipaddr") or instance_data.get("ssh_host")
+                        ssh_port = instance_data.get("ssh_port", 22)
+                        
+                        if ssh_host:
+                            logger.info(f"Instância pronta: {ssh_host}:{ssh_port}")
+                            return {"host": ssh_host, "port": ssh_port}
+                    
+                    logger.debug(f"Status atual: {status}")
+                except (json.JSONDecodeError, KeyError, IndexError) as e:
+                    logger.debug(f"Erro ao parsear status: {e}")
+            
+            await asyncio.sleep(10)
+        
+        raise RuntimeError(f"Timeout esperando instância {instance_id} ficar pronta")
     
-    async def _setup_instance(
-        self,
-        instance_id: int,
-        backend: DedicatedBackend,
-        model: str,
-        config: DedicatedConfig
-    ):
-        """Instala backend e modelo na instância"""
-        if backend == DedicatedBackend.OLLAMA:
-            await self._setup_ollama(instance_id, model)
-        else:
-            await self._setup_vllm(instance_id, model, config.quantization)
-    
-    async def _setup_ollama(self, instance_id: int, model: str):
-        """Instala Ollama e baixa modelo"""
-        logger.info(f"Instalando Ollama e baixando {model}...")
-        # TODO: Executar via SSH
-        # curl -fsSL https://ollama.com/install.sh | sh
-        # ollama pull {model}
-        await asyncio.sleep(1)
-    
-    async def _setup_vllm(
+    async def _wait_for_ollama_ready(
         self, 
-        instance_id: int, 
+        instance: DedicatedInstance, 
         model: str,
-        quantization: Optional[str]
+        timeout_minutes: int
     ):
-        """Instala vLLM e baixa modelo do HuggingFace"""
-        logger.info(f"Instalando vLLM e baixando {model}...")
-        # TODO: Executar via SSH
-        # pip install vllm
-        # python -m vllm.entrypoints.openai.api_server --model {model}
-        await asyncio.sleep(1)
+        """Aguarda Ollama estar pronto e modelo carregado"""
+        import httpx
+        
+        logger.info(f"Aguardando Ollama carregar modelo {model}...")
+        
+        timeout_seconds = timeout_minutes * 60
+        import time
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout_seconds:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    response = await client.get(f"{instance.endpoint}/api/tags")
+                    if response.status_code == 200:
+                        data = response.json()
+                        models = [m.get("name", "") for m in data.get("models", [])]
+                        if any(model in m for m in models):
+                            logger.info(f"Modelo {model} pronto!")
+                            return
+            except Exception as e:
+                logger.debug(f"Ollama ainda não pronto: {e}")
+            
+            await asyncio.sleep(15)
+        
+        logger.warning(f"Timeout esperando modelo {model} carregar")
     
     async def get_or_create(
         self,
@@ -264,21 +393,67 @@ class DedicatedProvider:
                     logger.info(f"Reutilizando instância existente: {instance.instance_id}")
                     return instance
         
+        # Verificar instâncias remotas no Vast.ai
+        running_instances = await self._list_remote_instances()
+        for inst_data in running_instances:
+            if inst_data.get("actual_status") == "running":
+                # Tentar usar instância existente
+                instance_id = inst_data["id"]
+                ssh_host = inst_data.get("public_ipaddr") or inst_data.get("ssh_host")
+                ssh_port = inst_data.get("ssh_port", 22)
+                
+                if ssh_host:
+                    instance = DedicatedInstance(
+                        instance_id=instance_id,
+                        backend=DedicatedBackend(backend),
+                        model=model,
+                        ssh_host=ssh_host,
+                        ssh_port=ssh_port,
+                        local_port=kwargs.get("local_port", 11435),
+                        api_port=11434 if backend == "ollama" else 8000,
+                    )
+                    
+                    if await instance.connect():
+                        self._instances[instance_id] = instance
+                        logger.info(f"Conectado a instância existente: {instance_id}")
+                        return instance
+        
         # Criar nova
         return await self.provision(model, backend, **kwargs)
     
+    async def _list_remote_instances(self) -> list[dict]:
+        """Lista instâncias remotas no Vast.ai"""
+        result = await self._run_vastai_command(["show", "instances", "--raw"])
+        
+        if result.returncode != 0:
+            return []
+        
+        try:
+            return json.loads(result.stdout) or []
+        except json.JSONDecodeError:
+            return []
+    
     def list_instances(self) -> list[DedicatedInstance]:
-        """Lista instâncias ativas"""
+        """Lista instâncias ativas locais"""
         return list(self._instances.values())
     
     async def terminate(self, instance_id: int):
         """Termina uma instância"""
+        # Desconectar túnel local
         if instance_id in self._instances:
             instance = self._instances[instance_id]
             instance.disconnect()
             del self._instances[instance_id]
+        
+        # Destruir no Vast.ai
+        result = await self._run_vastai_command([
+            "destroy", "instance", str(instance_id)
+        ])
+        
+        if result.returncode == 0:
             logger.info(f"Instância {instance_id} terminada")
-            # TODO: Terminar no Vast.ai
+        else:
+            logger.error(f"Falha ao terminar instância: {result.stderr}")
     
     async def terminate_all(self):
         """Termina todas as instâncias"""
