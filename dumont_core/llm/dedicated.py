@@ -65,6 +65,12 @@ class DedicatedInstance:
     local_port: int
     api_port: int = 11434  # Ollama default
     
+    # Metadados da instância
+    gpu_name: str = ""
+    cost_per_hour: float = 0.0
+    status: str = "unknown"
+    available_models: list = field(default_factory=list)
+    
     _tunnel: Optional[SSHTunnel] = field(default=None, repr=False)
     
     @property
@@ -87,6 +93,25 @@ class DedicatedInstance:
         
         self._tunnel = SSHTunnel(config)
         return self._tunnel.start()
+    
+    async def list_models(self) -> list[str]:
+        """Lista modelos disponíveis nesta instância via Ollama API"""
+        if not self._tunnel or not self._tunnel.is_active():
+            if not await self.connect():
+                return []
+        
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{self.endpoint}/api/tags")
+                if response.status_code == 200:
+                    data = response.json()
+                    self.available_models = [m.get("name", "") for m in data.get("models", [])]
+                    return self.available_models
+        except Exception as e:
+            logger.debug(f"Erro ao listar modelos: {e}")
+        
+        return []
     
     def disconnect(self):
         """Fecha o túnel SSH"""
@@ -432,6 +457,67 @@ python -m vllm.entrypoints.openai.api_server \
             return json.loads(result.stdout) or []
         except json.JSONDecodeError:
             return []
+    
+    async def discover_active_instances(self) -> list[DedicatedInstance]:
+        """
+        Descobre todas as instâncias ativas no Vast.ai e seus modelos disponíveis.
+        
+        Returns:
+            Lista de DedicatedInstance com metadados e modelos
+        """
+        instances = []
+        remote_instances = await self._list_remote_instances()
+        
+        for inst_data in remote_instances:
+            if inst_data.get("actual_status") != "running":
+                continue
+            
+            instance_id = inst_data["id"]
+            
+            # Extrair SSH host e port - preferir conexão direta via public_ipaddr
+            ssh_host = inst_data.get("public_ipaddr")
+            ssh_port = 22
+            
+            # Tentar obter a porta SSH mapeada (22/tcp -> HostPort)
+            ports = inst_data.get("ports", {})
+            ssh_port_info = ports.get("22/tcp", [])
+            if ssh_port_info and isinstance(ssh_port_info, list) and ssh_port_info:
+                ssh_port = int(ssh_port_info[0].get("HostPort", 22))
+            
+            # Se não tiver IP público, usar ssh_host do Vast.ai (proxy)
+            if not ssh_host:
+                ssh_host = inst_data.get("ssh_host")
+                ssh_port = inst_data.get("ssh_port", 22)
+            
+            if not ssh_host:
+                continue
+            
+            # Criar instância com metadados
+            instance = DedicatedInstance(
+                instance_id=instance_id,
+                backend=DedicatedBackend.OLLAMA,
+                model="",  # Será preenchido após descobrir modelos
+                ssh_host=ssh_host,
+                ssh_port=ssh_port,
+                local_port=11435 + len(instances),  # Porta única para cada instância
+                api_port=11434,
+                gpu_name=inst_data.get("gpu_name", ""),
+                cost_per_hour=inst_data.get("dph_total", 0.0),
+                status=inst_data.get("actual_status", "unknown"),
+            )
+            
+            # Conectar e listar modelos
+            if await instance.connect():
+                models = await instance.list_models()
+                if models:
+                    instance.model = models[0]  # Modelo principal
+                    logger.info(f"Instância {instance_id}: {instance.gpu_name} com modelos {models}")
+                instances.append(instance)
+                self._instances[instance_id] = instance
+            else:
+                logger.warning(f"Não foi possível conectar à instância {instance_id}")
+        
+        return instances
     
     def list_instances(self) -> list[DedicatedInstance]:
         """Lista instâncias ativas locais"""

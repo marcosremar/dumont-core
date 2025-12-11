@@ -231,22 +231,35 @@ class LLMManager:
     async def _create_ollama_llm(self, model: str, host: str, **kwargs) -> Any:
         """Cria LLM via Ollama"""
         # Importar dinamicamente para evitar dependência obrigatória
+        use_browser_use = False
         try:
             from langchain_ollama import ChatOllama
         except ImportError:
             try:
                 from browser_use import ChatOllama
+                use_browser_use = True
             except ImportError:
                 raise RuntimeError("langchain_ollama ou browser_use não instalado")
 
         logger.info(f"Criando LLM Ollama: {model} @ {host}")
 
-        return ChatOllama(
-            model=model,
-            base_url=host,
-            timeout=kwargs.pop("timeout", 120),
-            **kwargs
-        )
+        timeout = kwargs.pop("timeout", 120)
+        
+        if use_browser_use:
+            # browser_use usa 'host' ao invés de 'base_url'
+            return ChatOllama(
+                model=model,
+                host=host,
+                timeout=timeout,
+            )
+        else:
+            # langchain_ollama usa 'base_url'
+            return ChatOllama(
+                model=model,
+                base_url=host,
+                timeout=timeout,
+                **kwargs
+            )
 
     async def _create_dedicated_llm(self, model: str, backend: str = "ollama", **kwargs) -> Any:
         """
