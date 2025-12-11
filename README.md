@@ -1,16 +1,16 @@
-# Dumont Shared
+# Dumont Core
 
 Módulos compartilhados entre projetos Dumont.
 
 ## Instalação
 
 ```bash
-pip install -e vendor/dumont-shared
+pip install -e vendor/dumont-core
 ```
 
 ## Módulos Disponíveis
 
-### LLM Manager (`dumont.llm`)
+### LLM Manager (`dumont_core.llm`)
 
 Gerenciador unificado de conexões com LLMs:
 - OpenRouter (API cloud)
@@ -18,7 +18,7 @@ Gerenciador unificado de conexões com LLMs:
 - Ollama remoto (VPS com GPU via túnel SSH)
 
 ```python
-from dumont.llm import get_llm_manager
+from dumont_core.llm import get_llm_manager
 
 # Criar manager
 manager = get_llm_manager()

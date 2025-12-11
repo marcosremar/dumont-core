@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="dumont-shared",
+    name="dumont-core",
     version="0.1.0",
     description="Módulos compartilhados para projetos Dumont",
     author="Marcos Remar",
