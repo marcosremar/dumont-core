@@ -313,6 +313,26 @@ class UIAnalyzer:
         result = await agent.run(max_steps=10)
         return "LOGIN_SUCCESS" in str(result)
 
+    async def _run_test_with_fresh_browser(
+        self,
+        test_func,
+        llm,
+        timestamp: str,
+        *args
+    ) -> TestResult:
+        """
+        Executa um teste com um browser fresco.
+        Isso evita problemas de CDP desconectado entre testes.
+        """
+        browser = await self._setup_browser()
+        try:
+            return await test_func(browser, llm, timestamp, *args)
+        finally:
+            try:
+                await browser.stop()
+            except Exception:
+                pass  # Ignora erros ao fechar browser
+
     async def run_full_test(
         self,
         include_performance: bool = True,
@@ -342,61 +362,66 @@ class UIAnalyzer:
         print(f"INICIANDO TESTES - {self.base_url}")
         print(f"{'='*60}\n")
 
-        browser = await self._setup_browser()
         llm = self._create_llm()
 
-        try:
-            # 1. Teste de carregamento inicial
-            result = await self._test_initial_load(browser, llm, timestamp)
-            report.results.append(result)
+        # 1. Teste de carregamento inicial
+        result = await self._run_test_with_fresh_browser(
+            self._test_initial_load, llm, timestamp
+        )
+        report.results.append(result)
+        if on_test_complete:
+            on_test_complete(result)
+
+        # 2. Testes funcionais
+        functional_result = await self._run_test_with_fresh_browser(
+            self._test_functionality, llm, timestamp
+        )
+        report.results.append(functional_result)
+        if on_test_complete:
+            on_test_complete(functional_result)
+
+        # 3. Testes de performance
+        if include_performance:
+            perf_result = await self._run_test_with_fresh_browser(
+                self._test_performance, llm, timestamp
+            )
+            report.results.append(perf_result)
             if on_test_complete:
-                on_test_complete(result)
+                on_test_complete(perf_result)
 
-            # 2. Testes funcionais
-            functional_result = await self._test_functionality(browser, llm, timestamp)
-            report.results.append(functional_result)
+        # 4. Testes de acessibilidade
+        if include_accessibility:
+            a11y_result = await self._run_test_with_fresh_browser(
+                self._test_accessibility, llm, timestamp
+            )
+            report.results.append(a11y_result)
             if on_test_complete:
-                on_test_complete(functional_result)
+                on_test_complete(a11y_result)
 
-            # 3. Testes de performance
-            if include_performance:
-                perf_result = await self._test_performance(browser, llm, timestamp)
-                report.results.append(perf_result)
-                if on_test_complete:
-                    on_test_complete(perf_result)
+        # 5. Análise visual/UX
+        if include_visual:
+            visual_result = await self._run_test_with_fresh_browser(
+                self._test_visual_ux, llm, timestamp
+            )
+            report.results.append(visual_result)
+            if on_test_complete:
+                on_test_complete(visual_result)
 
-            # 4. Testes de acessibilidade
-            if include_accessibility:
-                a11y_result = await self._test_accessibility(browser, llm, timestamp)
-                report.results.append(a11y_result)
-                if on_test_complete:
-                    on_test_complete(a11y_result)
+        # 6. Testes customizados
+        for test_name, test_task in self.custom_tests.items():
+            custom_result = await self._run_test_with_fresh_browser(
+                self._run_custom_test, llm, timestamp, test_name, test_task
+            )
+            report.results.append(custom_result)
+            if on_test_complete:
+                on_test_complete(custom_result)
 
-            # 5. Análise visual/UX
-            if include_visual:
-                visual_result = await self._test_visual_ux(browser, llm, timestamp)
-                report.results.append(visual_result)
-                if on_test_complete:
-                    on_test_complete(visual_result)
+        # Calcular estatísticas
+        self._calculate_report_stats(report)
 
-            # 6. Testes customizados
-            for test_name, test_task in self.custom_tests.items():
-                custom_result = await self._run_custom_test(
-                    browser, llm, timestamp, test_name, test_task
-                )
-                report.results.append(custom_result)
-                if on_test_complete:
-                    on_test_complete(custom_result)
-
-            # Calcular estatísticas
-            self._calculate_report_stats(report)
-
-            # Gerar sumário com IA
-            report.summary = await self._generate_ai_summary(llm, report)
-            report.recommendations = await self._generate_recommendations(llm, report)
-
-        finally:
-            await browser.stop()
+        # Gerar sumário com IA
+        report.summary = await self._generate_ai_summary(llm, report)
+        report.recommendations = await self._generate_recommendations(llm, report)
 
         # Salvar relatório
         report_path = self.output_dir / f"{timestamp}_full_report.json"
