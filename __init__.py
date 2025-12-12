@@ -9,9 +9,9 @@ Módulos:
 
 __version__ = "0.1.0"
 
-# Expose main modules
-from dumont_core import llm
-from dumont_core import cloud
-from dumont_core import testing
+# Expose main modules using relative imports
+from . import llm
+from . import cloud
+from . import testing
 
 __all__ = ["llm", "cloud", "testing", "__version__"]

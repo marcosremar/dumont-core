@@ -269,7 +269,7 @@ class LLMManager:
             model: Nome do modelo (Ollama format ou HuggingFace repo)
             backend: "ollama" ou "huggingface"
         """
-        from dumont_core.llm.dedicated import get_dedicated_provider
+        from .dedicated import get_dedicated_provider
         
         provider = get_dedicated_provider()
         

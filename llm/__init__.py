@@ -15,7 +15,7 @@ Features:
 - Fallback entre providers
 """
 
-from dumont_core.llm.manager import (
+from .manager import (
     LLMManager,
     LLMProvider,
     LLMConfig,
@@ -24,10 +24,10 @@ from dumont_core.llm.manager import (
     list_models,
 )
 
-from dumont_core.llm.tunnel import SSHTunnel, RemoteServerConfig
+from .tunnel import SSHTunnel, RemoteServerConfig
 
 # Dedicated machine provider
-from dumont_core.llm.dedicated import (
+from .dedicated import (
     DedicatedProvider,
     DedicatedInstance,
     DedicatedConfig,
@@ -37,7 +37,7 @@ from dumont_core.llm.dedicated import (
 
 # Gateway avançado (opcional - requer litellm)
 try:
-    from dumont_core.llm.gateway import LLMGateway, ChatResponse, ToolCall
+    from .gateway import LLMGateway, ChatResponse, ToolCall
     GATEWAY_AVAILABLE = True
 except ImportError:
     GATEWAY_AVAILABLE = False
