@@ -396,7 +396,7 @@ class UIAnalyzer:
             report.recommendations = await self._generate_recommendations(llm, report)
 
         finally:
-            await browser.close()
+            await browser.stop()
 
         # Salvar relatório
         report_path = self.output_dir / f"{timestamp}_full_report.json"
@@ -1037,7 +1037,7 @@ class UIAnalyzer:
         try:
             return await self._test_functionality(browser, llm, timestamp)
         finally:
-            await browser.close()
+            await browser.stop()
 
     async def test_performance(self) -> TestResult:
         """Executa apenas testes de performance."""
@@ -1047,7 +1047,7 @@ class UIAnalyzer:
         try:
             return await self._test_performance(browser, llm, timestamp)
         finally:
-            await browser.close()
+            await browser.stop()
 
     async def test_accessibility(self) -> TestResult:
         """Executa apenas testes de acessibilidade."""
@@ -1057,7 +1057,7 @@ class UIAnalyzer:
         try:
             return await self._test_accessibility(browser, llm, timestamp)
         finally:
-            await browser.close()
+            await browser.stop()
 
     async def test_visual(self) -> TestResult:
         """Executa apenas análise visual/UX."""
@@ -1067,7 +1067,7 @@ class UIAnalyzer:
         try:
             return await self._test_visual_ux(browser, llm, timestamp)
         finally:
-            await browser.close()
+            await browser.stop()
 
     async def run_custom_test(self, name: str, task: str) -> TestResult:
         """Executa um teste customizado."""
@@ -1077,7 +1077,7 @@ class UIAnalyzer:
         try:
             return await self._run_custom_test(browser, llm, timestamp, name, task)
         finally:
-            await browser.close()
+            await browser.stop()
 
     def add_test(self, name: str, task: str):
         """Adiciona um teste customizado à suíte."""
