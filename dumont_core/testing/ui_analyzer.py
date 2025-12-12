@@ -28,20 +28,27 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
+
+# Type hints only - avoid runtime import errors
+if TYPE_CHECKING:
+    from browser_use import Agent, Browser
 
 try:
-    from browser_use import Agent, Browser, Controller
-    from browser_use.browser.context import BrowserContext
+    from browser_use import Agent, Browser
     BROWSER_USE_AVAILABLE = True
 except ImportError:
     BROWSER_USE_AVAILABLE = False
+    # Dummy classes for type hints when browser-use not installed
+    Agent = None  # type: ignore
+    Browser = None  # type: ignore
 
 try:
     from browser_use import ChatOpenAI as BrowserUseChatOpenAI
     BROWSER_USE_OPENAI_AVAILABLE = True
 except ImportError:
     BROWSER_USE_OPENAI_AVAILABLE = False
+    BrowserUseChatOpenAI = None  # type: ignore
 
 try:
     from langchain_openai import ChatOpenAI as LangChainChatOpenAI
