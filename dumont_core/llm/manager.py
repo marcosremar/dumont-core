@@ -208,10 +208,10 @@ class LLMManager:
         """Cria LLM via OpenRouter"""
         # Importar dinamicamente para evitar dependência obrigatória
         try:
-            from langchain_openai import ChatOpenAI
+            from browser_use import ChatOpenAI
         except ImportError:
             try:
-                from browser_use import ChatOpenAI
+                from langchain_openai import ChatOpenAI
             except ImportError:
                 raise RuntimeError("langchain_openai ou browser_use não instalado")
 
