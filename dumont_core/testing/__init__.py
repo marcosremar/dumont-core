@@ -1,13 +1,51 @@
 """
 Dumont Core - Testing Module
 
-Módulo compartilhado para testes automatizados de aplicações web usando Browser-Use.
-Permite análise visual de UI usando LLMs com capacidade de visão.
+Agente de teste automatizado com IA para aplicações web.
+Usa Browser-Use + LLMs com visão para testar como um usuário real.
 
-Componentes:
-- UIAnalyzer: Analisador de UI usando Browser-Use para navegação e LLM para análise visual
+Funcionalidades:
+- Testes funcionais (navegação, formulários, botões)
+- Testes de performance (tempo de carregamento, responsividade)
+- Testes de acessibilidade (WCAG compliance)
+- Análise visual/UX
+- Detecção automática de bugs
+- Sugestões de melhoria com IA
+
+Uso básico:
+    from dumont_core.testing import UIAnalyzer
+
+    analyzer = UIAnalyzer(base_url="http://localhost:8080")
+    report = await analyzer.run_full_test()
+
+    # Ou testes específicos:
+    result = await analyzer.test_functionality()
+    result = await analyzer.test_performance()
+    result = await analyzer.test_accessibility()
+
+Classes exportadas:
+- UIAnalyzer: Agente principal de testes
+- TestReport: Relatório completo de testes
+- TestResult: Resultado de um teste individual
+- TestIssue: Issue/problema encontrado
+- TestSeverity: Enum de severidades (CRITICAL, HIGH, MEDIUM, LOW, INFO)
+- TestCategory: Enum de categorias (FUNCTIONAL, PERFORMANCE, etc)
 """
 
-from dumont_core.testing.ui_analyzer import UIAnalyzer
+from dumont_core.testing.ui_analyzer import (
+    UIAnalyzer,
+    TestReport,
+    TestResult,
+    TestIssue,
+    TestSeverity,
+    TestCategory,
+)
 
-__all__ = ["UIAnalyzer"]
+__all__ = [
+    "UIAnalyzer",
+    "TestReport",
+    "TestResult",
+    "TestIssue",
+    "TestSeverity",
+    "TestCategory",
+]
