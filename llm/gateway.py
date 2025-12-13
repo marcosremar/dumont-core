@@ -21,8 +21,8 @@ THINK_TAG_PATTERN = re.compile(r'<think>.*?</think>\s*', re.DOTALL | re.IGNORECA
 # See: https://github.com/BerriAI/litellm/issues/14137
 litellm.drop_params = True
 
-from dumont_core.llm.providers.factory import create_provider
-from dumont_core.resilience import CircuitBreaker, RetryPolicy
+from .providers.factory import create_provider
+from .resilience import CircuitBreaker, RetryPolicy
 from lca.core.cache.semantic_cache import SemanticCache
 
 

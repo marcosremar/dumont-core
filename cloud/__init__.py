@@ -30,7 +30,7 @@ Simple interface for GPU instances with LLM services via Skypilot/Vast.ai.
 """
 
 # Core modules
-from dumont_core.cloud.config import (
+from .config import (
     CloudConfig,
     get_config,
     set_model,
@@ -38,7 +38,7 @@ from dumont_core.cloud.config import (
     DEFAULT_MODEL,
     MODELS,
 )
-from dumont_core.cloud.profiles import (
+from .profiles import (
     ModelSpec,
     InstanceProfile,
     PROFILES,
@@ -46,10 +46,10 @@ from dumont_core.cloud.profiles import (
     list_profiles,
     create_custom_profile,
 )
-from dumont_core.cloud.gpu_lifecycle import (
+from .gpu_lifecycle import (
     GPUInstanceState,
 )
-from dumont_core.cloud import quick
+from . import quick
 
 __all__ = [
     # Config

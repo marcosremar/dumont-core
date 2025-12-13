@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from dumont_core.llm.tunnel import SSHTunnel, RemoteServerConfig
+from .tunnel import SSHTunnel, RemoteServerConfig
 
 logger = logging.getLogger("dumont_core.llm.dedicated")
 
@@ -473,18 +473,20 @@ python -m vllm.entrypoints.openai.api_server \
                 continue
             
             instance_id = inst_data["id"]
-            
-            # Extrair SSH host e port - preferir conexão direta via public_ipaddr
+
+            # Extrair SSH host e port - preferir conexão direta (public_ipaddr)
+            # O proxy SSH do Vast.ai muitas vezes não funciona se a chave SSH
+            # não foi configurada no momento da criação da instância
             ssh_host = inst_data.get("public_ipaddr")
             ssh_port = 22
-            
+
             # Tentar obter a porta SSH mapeada (22/tcp -> HostPort)
             ports = inst_data.get("ports", {})
             ssh_port_info = ports.get("22/tcp", [])
             if ssh_port_info and isinstance(ssh_port_info, list) and ssh_port_info:
                 ssh_port = int(ssh_port_info[0].get("HostPort", 22))
-            
-            # Se não tiver IP público, usar ssh_host do Vast.ai (proxy)
+
+            # Se não tiver IP público, tentar o proxy SSH do Vast.ai
             if not ssh_host:
                 ssh_host = inst_data.get("ssh_host")
                 ssh_port = inst_data.get("ssh_port", 22)

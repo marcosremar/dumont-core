@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dumont_core.infrastructure.llm_providers.base import LLMProviderStrategy
-from dumont_core.infrastructure.llm_providers.openai import OpenAIProvider
-from dumont_core.infrastructure.llm_providers.openrouter import OpenRouterProvider
-from dumont_core.infrastructure.llm_providers.anthropic import AnthropicProvider
-from dumont_core.infrastructure.llm_providers.ollama import OllamaProvider
+from .base import LLMProviderStrategy
+from .openai import OpenAIProvider
+from .openrouter import OpenRouterProvider
+from .anthropic import AnthropicProvider
+from .ollama import OllamaProvider
 
 
 def create_provider(provider_name: str) -> LLMProviderStrategy:

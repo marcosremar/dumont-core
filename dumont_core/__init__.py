@@ -1,17 +1,25 @@
 """
-Dumont Core - Módulos compartilhados para projetos Dumont
+Backwards compatibility module for dumont_core imports.
 
-Módulos:
-- llm: Gerenciador unificado de LLMs (OpenRouter, Ollama, OpenAI, Anthropic)
-- cloud: Gestão de GPU na nuvem (Vast.ai, Skypilot)
-- testing: Testes automatizados de UI com Browser-Use e LLMs
+The actual modules are in the root of dumont-core.
+This re-exports them for compatibility with existing code.
 """
 
-__version__ = "0.1.0"
+import sys
+import os
 
-# Expose main modules
-from dumont_core import llm
-from dumont_core import cloud
-from dumont_core import testing
+# Get the parent directory (dumont-core root)
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
-__all__ = ["llm", "cloud", "testing", "__version__"]
+# Re-export modules from root
+from llm import *
+from llm import get_llm_manager, get_dedicated_provider, LLMProvider, DedicatedBackend
+
+# Re-export testing module
+from . import testing
+from . import llm as llm_module
+from . import cloud as cloud_module
+
+__all__ = ['llm', 'testing', 'cloud', 'get_llm_manager', 'get_dedicated_provider', 'LLMProvider', 'DedicatedBackend']

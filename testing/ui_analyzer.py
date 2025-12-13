@@ -1108,6 +1108,310 @@ class UIAnalyzer:
         """Adiciona um teste customizado à suíte."""
         self.custom_tests[name] = task
 
+    async def run_custom_task(
+        self,
+        task_description: str,
+        max_steps: int = 25
+    ):
+        """
+        Executa uma tarefa customizada com captura de screenshots.
+
+        Este metodo e usado pelos testes de analise visual.
+        Captura screenshots automaticamente a cada passo do agente.
+
+        Args:
+            task_description: Descricao da tarefa para o agente executar
+            max_steps: Numero maximo de passos
+
+        Returns:
+            Resultado do agente com screenshots salvos
+        """
+        browser = await self._setup_browser()
+        llm = self._create_llm()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Cria diretorio para screenshots desta task
+        screenshots_dir = self.output_dir / "screenshots" / f"custom_{timestamp}"
+        screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+        # Contador de screenshots
+        step_counter = [0]
+        screenshot_paths = []
+
+        def save_step_screenshot(state, model_output, step: int):
+            """Callback para salvar screenshot a cada passo."""
+            step_counter[0] += 1
+            if hasattr(state, 'screenshot') and state.screenshot:
+                screenshot_path = screenshots_dir / f"step_{step_counter[0]:04d}.png"
+                try:
+                    # state.screenshot e base64
+                    import base64
+                    screenshot_data = base64.b64decode(state.screenshot)
+                    with open(screenshot_path, "wb") as f:
+                        f.write(screenshot_data)
+                    screenshot_paths.append(str(screenshot_path))
+                    print(f"  [Screenshot] Salvo: {screenshot_path.name}")
+                except Exception as e:
+                    print(f"  [Screenshot] Erro ao salvar: {e}")
+
+        try:
+            agent = Agent(
+                task=task_description,
+                llm=llm,
+                browser=browser,
+                save_conversation_path=str(
+                    self.output_dir / f"custom_{timestamp}.json"
+                ),
+                register_new_step_callback=save_step_screenshot
+            )
+
+            result = await agent.run(max_steps=max_steps)
+
+            print(f"\nTarefa concluida!")
+            print(f"  Screenshots salvos: {len(screenshot_paths)}")
+            print(f"  Screenshots dir: {screenshots_dir}")
+
+            # Gera relatorio HTML se houver screenshots
+            if screenshot_paths:
+                html_path = self._generate_html_report(
+                    timestamp=timestamp,
+                    task_description=task_description,
+                    screenshot_paths=screenshot_paths,
+                    result=result,
+                    output_dir=self.output_dir
+                )
+                print(f"  Relatorio HTML: {html_path}")
+
+            return result
+
+        finally:
+            try:
+                await browser.stop()
+            except Exception:
+                pass  # Ignora erros ao fechar browser
+
+    def _generate_html_report(
+        self,
+        timestamp: str,
+        task_description: str,
+        screenshot_paths: list,
+        result,
+        output_dir: Path
+    ) -> str:
+        """
+        Gera um relatorio HTML com screenshots embedded.
+
+        Args:
+            timestamp: Timestamp do teste
+            task_description: Descricao da tarefa
+            screenshot_paths: Lista de caminhos para screenshots
+            result: Resultado do agente
+            output_dir: Diretorio de saida
+
+        Returns:
+            Caminho do arquivo HTML gerado
+        """
+        import base64
+
+        # Extrai conteudo do resultado
+        result_text = ""
+        if hasattr(result, 'all_results'):
+            last_result = result.all_results[-1] if result.all_results else None
+            if last_result and hasattr(last_result, 'extracted_content'):
+                result_text = last_result.extracted_content
+            else:
+                result_text = str(result)
+        else:
+            result_text = str(result)
+
+        # Converte screenshots para base64 inline
+        screenshots_html = ""
+        for i, path in enumerate(screenshot_paths, 1):
+            try:
+                with open(path, "rb") as f:
+                    img_data = base64.b64encode(f.read()).decode('utf-8')
+                screenshots_html += f'''
+                <div class="screenshot-container">
+                    <h3>Passo {i}</h3>
+                    <img src="data:image/png;base64,{img_data}" alt="Step {i}" />
+                </div>
+                '''
+            except Exception as e:
+                screenshots_html += f'<p class="error">Erro ao carregar screenshot {i}: {e}</p>'
+
+        html_content = f'''<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatorio de Teste UI - {timestamp}</title>
+    <style>
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eaeaea;
+            line-height: 1.6;
+            padding: 20px;
+        }}
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+        }}
+        header {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }}
+        h1 {{
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }}
+        .meta {{
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }}
+        .section {{
+            background: #16213e;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }}
+        .section h2 {{
+            color: #667eea;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }}
+        .task-description {{
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }}
+        .result {{
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }}
+        .screenshots-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 20px;
+        }}
+        .screenshot-container {{
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 15px;
+        }}
+        .screenshot-container h3 {{
+            color: #e94560;
+            margin-bottom: 10px;
+        }}
+        .screenshot-container img {{
+            width: 100%;
+            border-radius: 8px;
+            border: 2px solid #667eea;
+        }}
+        .summary {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }}
+        .stat {{
+            background: #0f3460;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }}
+        .stat-value {{
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }}
+        .stat-label {{
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }}
+        .error {{
+            color: #e94560;
+            padding: 10px;
+            background: rgba(233, 69, 96, 0.1);
+            border-radius: 8px;
+        }}
+        footer {{
+            text-align: center;
+            margin-top: 30px;
+            opacity: 0.6;
+            font-size: 0.9rem;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Relatorio de Teste UI</h1>
+            <div class="meta">
+                <p>Timestamp: {timestamp}</p>
+                <p>Gerado por: dumont-core UIAnalyzer</p>
+            </div>
+        </header>
+
+        <div class="section">
+            <h2>Resumo</h2>
+            <div class="summary">
+                <div class="stat">
+                    <div class="stat-value">{len(screenshot_paths)}</div>
+                    <div class="stat-label">Screenshots</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">{len(screenshot_paths)}</div>
+                    <div class="stat-label">Passos Executados</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Tarefa</h2>
+            <div class="task-description">{task_description}</div>
+        </div>
+
+        <div class="section">
+            <h2>Resultado do Agente</h2>
+            <div class="result">{result_text[:5000]}</div>
+        </div>
+
+        <div class="section">
+            <h2>Screenshots</h2>
+            <div class="screenshots-grid">
+                {screenshots_html}
+            </div>
+        </div>
+
+        <footer>
+            <p>Gerado automaticamente pelo UIAnalyzer - dumont-core</p>
+        </footer>
+    </div>
+</body>
+</html>'''
+
+        report_path = output_dir / f"report_{timestamp}.html"
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+        return str(report_path)
+
     # ================================================================
     # Compatibilidade com API antiga (analyze)
     # ================================================================

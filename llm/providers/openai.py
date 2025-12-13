@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import litellm
 
-from dumont_core.infrastructure.llm_providers.base import LLMProviderStrategy
+from .base import LLMProviderStrategy
 
 
 class OpenAIProvider(LLMProviderStrategy):
